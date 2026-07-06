@@ -1,202 +1,290 @@
-import React, { useEffect, useRef, useMemo } from 'react';
+import { useRef, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Environment, Sparkles, Float, ContactShadows } from '@react-three/drei';
+import { useScroll, Float, Sparkles, Stars } from '@react-three/drei';
 import * as THREE from 'three';
 
-export default function Scene({ tl }) {
-  const { camera } = useThree();
-  
-  // Refs for animated objects
-  const seedRef = useRef();
+/* ===== Camera keyframes: [offset, posX, posY, posZ, lookX, lookY, lookZ] ===== */
+const CAM = [
+  [0.00,   0,  1.5,  12,    0,   0,     0],   // Intro: looking at seed
+  [0.18,   0,  1.5,  12,    0,   0,     0],   // Hold intro
+  [0.25,   0,  4,     7,    0,   0,     0],   // Zoom in for growth
+  [0.38,   0,  4,     7,    0,   0,     0],   // Hold growth
+  [0.44,  -4, 10,    16,    0,  -3,    -5],   // Pull out, look at fields
+  [0.56,   4, 10,    16,    0,  -3,    -5],   // Pan across fields
+  [0.62,   4,  2,     6,    0,   0,     0],   // Come in for tech rice
+  [0.76,  -4,  3,     6,    0,   0,     0],   // Orbit tech rice
+  [0.82,   0,  2,    10,    0,  -0.5,   0],   // Pull out for bowl
+  [1.00,   0,  2,    10,    0,  -0.5,   0],   // Hold bowl
+];
+
+/* ===== Helpers ===== */
+function smoothstep(t) {
+  return t * t * (3 - 2 * t);
+}
+
+function clamp01(val) {
+  return Math.max(0, Math.min(1, val));
+}
+
+/** Returns 0→1→0: fades in during [enterS, enterE], holds, fades out during [exitS, exitE] */
+function visibility(offset, enterS, enterE, exitS, exitE) {
+  const enter = smoothstep(clamp01((offset - enterS) / (enterE - enterS)));
+  const exit  = 1 - smoothstep(clamp01((offset - exitS) / (exitE - exitS)));
+  return Math.max(0, Math.min(enter, exit));
+}
+
+/* ===== Main Scene Component ===== */
+export default function Scene() {
+  const scroll  = useScroll();
+  const { scene, camera } = useThree();
+
+  // Object refs
+  const seedRef  = useRef();
   const sproutRef = useRef();
-  const fieldRef = useRef();
-  const techRiceRef = useRef();
-  const bowlGroupRef = useRef();
-  
-  // Premium Materials
-  const seedMaterial = useMemo(() => new THREE.MeshPhysicalMaterial({
-    color: '#ffd700',
-    emissive: '#aa5500',
-    emissiveIntensity: 0.2,
-    metalness: 0.6,
-    roughness: 0.2,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.1
+  const fieldRef  = useRef();
+  const techRef   = useRef();
+  const bowlRef   = useRef();
+  const mtnsRef   = useRef();
+
+  // Reusable vector for lookAt
+  const lookVec = useMemo(() => new THREE.Vector3(), []);
+
+  // Background palette
+  const bg = useMemo(() => [
+    new THREE.Color('#2a1050'),  // 0: deep purple  (intro)
+    new THREE.Color('#4a2040'),  // 1: warm dark     (growth)
+    new THREE.Color('#705020'),  // 2: sunset amber  (fields)
+    new THREE.Color('#080318'),  // 3: dark neon     (tech)
+    new THREE.Color('#2a1035'),  // 4: soft purple   (end)
+  ], []);
+
+  // Materials
+  const seedMat = useMemo(() => new THREE.MeshPhysicalMaterial({
+    color: '#ffd700', emissive: '#bb8800', emissiveIntensity: 0.3,
+    metalness: 0.5, roughness: 0.15, clearcoat: 1, clearcoatRoughness: 0.05,
   }), []);
 
-  const sproutMaterial = useMemo(() => new THREE.MeshPhysicalMaterial({
-    color: '#88eeaa',
-    emissive: '#225533',
-    emissiveIntensity: 0.2,
-    roughness: 0.4,
-    metalness: 0.1,
-    clearcoat: 0.5
+  const sproutMat = useMemo(() => new THREE.MeshPhysicalMaterial({
+    color: '#77dd77', emissive: '#226622', emissiveIntensity: 0.2,
+    roughness: 0.3, clearcoat: 0.5,
   }), []);
 
-  const fieldMaterial = useMemo(() => new THREE.MeshPhysicalMaterial({
-    color: '#8844aa', // Soft purple
-    roughness: 0.8,
-    metalness: 0.1,
-    flatShading: true // Low poly stylized look
+  const fieldMat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#8844aa', roughness: 0.7, flatShading: true,
   }), []);
 
-  // Procedural Terraced Field Geometry
+  // Procedural terraced-field geometry
   const fieldGeo = useMemo(() => {
-    const geo = new THREE.PlaneGeometry(80, 80, 50, 50);
-    const pos = geo.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i);
-      const y = pos.getY(i);
-      // Create terraced steps using sine waves
-      const wave = Math.sin(x * 0.1) + Math.cos(y * 0.1);
-      const z = Math.floor(wave * 3) * 0.8 + Math.sin(x*0.2)*0.5; 
-      pos.setZ(i, z);
+    const g = new THREE.PlaneGeometry(60, 60, 40, 40);
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i);
+      p.setZ(i, Math.sin(x * 0.15) * 2 + Math.cos(y * 0.1) * 1.5 + Math.sin((x + y) * 0.08));
     }
-    geo.computeVertexNormals();
-    return geo;
+    g.computeVertexNormals();
+    return g;
   }, []);
 
-  useEffect(() => {
-    if (!tl) return;
+  /* ===== Per-frame update ===== */
+  useFrame((_, delta) => {
+    const o = scroll.offset; // 0 → 1
 
-    // Reset Camera
-    camera.position.set(0, 2, 12);
-    camera.rotation.set(-0.1, 0, 0);
+    // --- Camera interpolation along keyframe path ---
+    let idx = 0;
+    for (let i = 0; i < CAM.length - 1; i++) {
+      if (o >= CAM[i][0] && o <= CAM[i + 1][0]) { idx = i; break; }
+      if (i === CAM.length - 2) idx = i;
+    }
+    const a = CAM[idx], b = CAM[idx + 1];
+    const span = b[0] - a[0];
+    const t = span > 0 ? smoothstep(clamp01((o - a[0]) / span)) : 0;
 
-    // Initial Object States
-    if (seedRef.current) seedRef.current.scale.set(1, 1, 1);
-    
+    camera.position.set(
+      THREE.MathUtils.lerp(a[1], b[1], t),
+      THREE.MathUtils.lerp(a[2], b[2], t),
+      THREE.MathUtils.lerp(a[3], b[3], t),
+    );
+    lookVec.set(
+      THREE.MathUtils.lerp(a[4], b[4], t),
+      THREE.MathUtils.lerp(a[5], b[5], t),
+      THREE.MathUtils.lerp(a[6], b[6], t),
+    );
+    camera.lookAt(lookVec);
+
+    // --- Background colour ---
+    const page  = o * 4;                        // 0 → 4
+    const pi    = Math.min(Math.floor(page), 3);
+    const pf    = page - pi;
+    scene.background = bg[pi].clone().lerp(bg[pi + 1], smoothstep(pf));
+
+    // --- Seed (page 1) ---
+    const sS = visibility(o, 0, 0.02, 0.18, 0.24);
+    if (seedRef.current) {
+      seedRef.current.scale.setScalar(sS);
+      seedRef.current.visible = sS > 0.001;
+      seedRef.current.rotation.y += delta * 0.5;
+    }
+
+    // --- Sprout (page 2) ---
+    const sP = visibility(o, 0.22, 0.28, 0.36, 0.42);
     if (sproutRef.current) {
-        sproutRef.current.scale.set(0, 0, 0);
-        sproutRef.current.position.set(0, -1.5, 2);
+      sproutRef.current.scale.setScalar(sP);
+      sproutRef.current.visible = sP > 0.001;
     }
-    
+
+    // --- Fields (page 3) ---
+    const sF = visibility(o, 0.40, 0.46, 0.56, 0.62);
     if (fieldRef.current) {
-        fieldRef.current.position.set(0, -5, -15);
-        fieldRef.current.rotation.x = -Math.PI / 2;
-        fieldRef.current.scale.set(0, 0, 0);
+      fieldRef.current.scale.setScalar(sF);
+      fieldRef.current.visible = sF > 0.001;
     }
-    
-    if (techRiceRef.current) {
-        techRiceRef.current.position.set(15, 0, -10);
-        techRiceRef.current.scale.set(0, 0, 0);
-    }
-    
-    if (bowlGroupRef.current) {
-        bowlGroupRef.current.position.set(0, -2, 5);
-        bowlGroupRef.current.scale.set(0, 0, 0);
+    // Colour shift purple → gold
+    if (o >= 0.4 && o <= 0.6) {
+      const gt = smoothstep(clamp01((o - 0.44) / 0.12));
+      fieldMat.color.set('#8844aa').lerp(new THREE.Color('#ddaa22'), gt);
     }
 
-    // --- GSAP TIMELINE ---
-    
-    // Scene 1 -> 2: Growth. Camera moves slightly up and looks down at an angle.
-    tl.to(camera.position, { y: 4, z: 8, duration: 1.5, ease: "power2.inOut" }, 0)
-      .to(camera.rotation, { x: -Math.PI / 8, duration: 1.5, ease: "power2.inOut" }, 0)
-      .to(seedRef.current.scale, { x: 0, y: 0, z: 0, duration: 0.8, ease: "back.in(1.2)" }, 0.2)
-      .to(sproutRef.current.scale, { x: 1, y: 1, z: 1, duration: 1.2, ease: "elastic.out(1, 0.7)" }, 0.8);
+    // --- Tech rice (page 4) ---
+    const sT = visibility(o, 0.60, 0.66, 0.76, 0.82);
+    if (techRef.current) {
+      techRef.current.scale.setScalar(sT);
+      techRef.current.visible = sT > 0.001;
+      techRef.current.rotation.y += delta * 1;
+    }
 
-    // Scene 2 -> 3: Terraced Fields. Camera pans out and sweeps over the landscape.
-    tl.to(camera.position, { y: 10, z: 18, x: -5, duration: 2, ease: "power2.inOut" }, 2)
-      .to(camera.rotation, { x: -Math.PI / 6, y: -0.1, z: 0, duration: 2 }, 2)
-      .to(sproutRef.current.scale, { x: 0, y: 0, z: 0, duration: 0.5 }, 2)
-      .to(fieldRef.current.scale, { x: 1, y: 1, z: 1, duration: 1.5, ease: "power2.out" }, 2)
-      .to(fieldMaterial.color, { r: 1, g: 0.7, b: 0.1, duration: 1.5 }, 2.5) // Transitions to gold
-      .to(camera.position, { x: 5, duration: 2, ease: "none" }, 2.5); // Pan across fields
+    // --- Bowl (page 5) ---
+    const sB = visibility(o, 0.82, 0.88, 1.1, 1.2); // never exits
+    if (bowlRef.current) {
+      bowlRef.current.scale.setScalar(sB);
+      bowlRef.current.visible = sB > 0.001;
+    }
 
-    // Scene 3 -> 4: Tech Rice. Camera orbits.
-    tl.to(fieldRef.current.scale, { x: 0, y: 0, z: 0, duration: 0.8 }, 4)
-      .to(camera.position, { x: 15, y: 2, z: -2, duration: 1.5, ease: "power2.inOut" }, 4.2)
-      .to(camera.rotation, { x: 0, y: Math.PI / 4, z: 0, duration: 1.5 }, 4.2)
-      .to(techRiceRef.current.scale, { x: 1, y: 1, z: 1, duration: 1, ease: "back.out(1.5)" }, 4.5)
-      .to(camera.position, { x: 25, z: -18, duration: 2, ease: "none" }, 5)
-      .to(camera.rotation, { y: Math.PI / 2 + 0.15, duration: 2, ease: "none" }, 5);
-
-    // Scene 4 -> 5: Bowl of Rice.
-    tl.to(techRiceRef.current.scale, { x: 0, y: 0, z: 0, duration: 0.8 }, 7)
-      .to(camera.position, { x: 0, y: 1, z: 15, duration: 1.5, ease: "power2.inOut" }, 7.2)
-      .to(camera.rotation, { x: -0.05, y: 0, z: 0, duration: 1.5 }, 7.2)
-      .to(bowlGroupRef.current.scale, { x: 1, y: 1, z: 1, duration: 1.5, ease: "elastic.out(1, 0.6)" }, 7.5);
-
-  }, [tl, camera, fieldMaterial]);
-
-  // Continuous idle animations
-  useFrame((state, delta) => {
-    if (seedRef.current) seedRef.current.rotation.y += delta * 0.4;
-    if (techRiceRef.current) techRiceRef.current.rotation.y += delta * 0.8;
+    // --- Mountains (fade after page 2) ---
+    const sM = visibility(o, 0, 0.01, 0.35, 0.45);
+    if (mtnsRef.current) {
+      mtnsRef.current.visible = sM > 0.01;
+    }
   });
 
+  /* ===== JSX ===== */
   return (
     <>
-      <ambientLight intensity={0.6} color="#ffe6f0" />
-      <directionalLight position={[10, 20, 10]} intensity={1.5} color="#ffd580" />
-      <hemisphereLight skyColor="#aa88ff" groundColor="#ffaa88" intensity={0.8} />
-      
-      {/* Dynamic Environment Sky (Creates beautiful smooth gradients) */}
-      <Environment preset="sunset" background backgroundBlurriness={0.8} />
+      {/* ─── Lighting ─── */}
+      <ambientLight intensity={0.5} color="#ffe6f0" />
+      <directionalLight position={[10, 15, 8]} intensity={1.2} color="#ffd580" />
+      <hemisphereLight args={['#9966cc', '#ff8866', 0.6]} />
+      <pointLight position={[0, 5, 5]} intensity={0.5} color="#ffaacc" />
 
-      {/* Floating particles */}
-      <Sparkles count={300} scale={30} size={4} color="#ffb3d9" speed={0.3} opacity={0.6} />
+      {/* ─── Background particles ─── */}
+      <Stars radius={50} depth={30} count={1500} factor={3} saturation={0.5} fade speed={0.5} />
+      <Sparkles count={200} scale={25} size={3} color="#ffaadd" speed={0.2} opacity={0.5} />
 
-      {/* 1. Rice Seed (Smooth capsule) */}
-      <Float speed={2} rotationIntensity={0.5} floatIntensity={1}>
-        <mesh ref={seedRef} material={seedMaterial}>
+      {/* ─── Background mountains (intro) ─── */}
+      <group ref={mtnsRef} position={[0, -3, -20]}>
+        <mesh position={[-12, 0, 0]}>
+          <coneGeometry args={[6, 10, 5]} />
+          <meshStandardMaterial color="#5533aa" flatShading />
+        </mesh>
+        <mesh position={[-3, 0, -5]}>
+          <coneGeometry args={[8, 14, 6]} />
+          <meshStandardMaterial color="#4422aa" flatShading />
+        </mesh>
+        <mesh position={[7, 0, -3]}>
+          <coneGeometry args={[7, 11, 5]} />
+          <meshStandardMaterial color="#6644bb" flatShading />
+        </mesh>
+        <mesh position={[16, 0, -6]}>
+          <coneGeometry args={[5, 8, 5]} />
+          <meshStandardMaterial color="#5533aa" flatShading />
+        </mesh>
+      </group>
+
+      {/* ─── 1. Rice Seed ─── */}
+      <Float speed={2} rotationIntensity={0.3} floatIntensity={0.8}>
+        <mesh ref={seedRef} material={seedMat}>
           <capsuleGeometry args={[0.8, 1.5, 32, 32]} />
         </mesh>
       </Float>
 
-      {/* 2. Sprout - Improved stylized look with smooth capsules */}
-      <group ref={sproutRef}>
-        {/* Main stem */}
-        <mesh material={sproutMaterial} position={[0, 1.5, 0]}>
-          <capsuleGeometry args={[0.25, 2, 32, 32]} />
+      {/* ─── 2. Sprout ─── */}
+      <group ref={sproutRef} position={[0, -1, 0]}>
+        <mesh material={sproutMat} position={[0, 1.2, 0]}>
+          <cylinderGeometry args={[0.08, 0.15, 2.5, 16]} />
         </mesh>
-        {/* Leaves */}
-        <mesh material={sproutMaterial} position={[0.5, 2, 0]} rotation={[0, 0, -Math.PI/3]}>
-          <capsuleGeometry args={[0.15, 1.5, 32, 32]} />
+        <mesh material={sproutMat} position={[0.4, 2, 0]} rotation={[0, 0, -0.6]}>
+          <capsuleGeometry args={[0.1, 1.2, 16, 16]} />
         </mesh>
-        <mesh material={sproutMaterial} position={[-0.4, 1.5, 0]} rotation={[0, 0, Math.PI/3]}>
-          <capsuleGeometry args={[0.15, 1.2, 32, 32]} />
+        <mesh material={sproutMat} position={[-0.35, 1.6, 0.1]} rotation={[0.2, 0, 0.5]}>
+          <capsuleGeometry args={[0.08, 1, 16, 16]} />
         </mesh>
-        {/* Small dirt mound */}
+        <mesh material={sproutMat} position={[0.15, 2.4, -0.1]} rotation={[-0.3, 0, -0.3]}>
+          <capsuleGeometry args={[0.06, 0.8, 16, 16]} />
+        </mesh>
+        {/* Rice grains */}
+        <mesh material={seedMat} position={[0, 2.8, 0]} rotation={[0, 0, 0.3]}>
+          <capsuleGeometry args={[0.12, 0.3, 16, 16]} />
+        </mesh>
+        <mesh material={seedMat} position={[0.15, 2.7, 0.05]} rotation={[0.2, 0, -0.2]}>
+          <capsuleGeometry args={[0.1, 0.25, 16, 16]} />
+        </mesh>
+        {/* Soil */}
         <mesh position={[0, 0, 0]}>
-          <sphereGeometry args={[1.8, 32, 16, 0, Math.PI*2, 0, Math.PI/2]} />
-          <meshPhysicalMaterial color="#4a2e2b" roughness={1} />
+          <sphereGeometry args={[1.5, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
+          <meshStandardMaterial color="#4a2a2a" roughness={1} />
         </mesh>
       </group>
 
-      {/* 3. Terraced Fields (Procedural wavy landscape) */}
-      <mesh ref={fieldRef} material={fieldMaterial} geometry={fieldGeo} />
-
-      {/* 4. Tech Rice */}
-      <group ref={techRiceRef}>
-        <mesh>
-          <capsuleGeometry args={[0.8, 1.6, 16, 16]} />
-          <meshBasicMaterial color="#00ffff" wireframe={true} transparent opacity={0.3} />
+      {/* ─── 3. Terraced Fields ─── */}
+      <group ref={fieldRef} position={[0, -5, -5]} rotation={[-Math.PI / 2, 0, 0]}>
+        <mesh material={fieldMat} geometry={fieldGeo} />
+        {/* River */}
+        <mesh position={[0, 0, 0.5]} rotation={[0, Math.PI / 6, 0]}>
+          <planeGeometry args={[3, 60]} />
+          <meshStandardMaterial color="#4488cc" roughness={0.3} metalness={0.4} />
         </mesh>
-        <mesh>
-          <capsuleGeometry args={[0.7, 1.4, 32, 32]} />
-          <meshPhysicalMaterial color="#110033" emissive="#aa00ff" emissiveIntensity={2} roughness={0.1} />
-        </mesh>
-        <Sparkles count={50} scale={4} size={3} color="#00ffff" />
       </group>
 
-      {/* 5. Bowl of Rice */}
-      <group ref={bowlGroupRef}>
-        {/* Bowl */}
-        <mesh position={[0, 0, 0]}>
-          <sphereGeometry args={[3, 64, 32, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2]} />
-          <meshPhysicalMaterial color="#f0f0f0" metalness={0.1} roughness={0.1} clearcoat={1} side={THREE.DoubleSide} />
+      {/* ─── 4. Tech Rice ─── */}
+      <group ref={techRef}>
+        <mesh>
+          <capsuleGeometry args={[1, 2, 8, 16]} />
+          <meshBasicMaterial color="#00ffff" wireframe transparent opacity={0.3} />
         </mesh>
-        {/* Rice mound */}
+        <mesh>
+          <capsuleGeometry args={[0.85, 1.7, 32, 32]} />
+          <meshPhysicalMaterial
+            color="#110033" emissive="#9900ff" emissiveIntensity={3}
+            roughness={0.1} metalness={0.8} clearcoat={1}
+          />
+        </mesh>
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[1.5, 0.03, 16, 64]} />
+          <meshBasicMaterial color="#00ffff" />
+        </mesh>
+        <mesh rotation={[Math.PI / 3, 0.5, 0]}>
+          <torusGeometry args={[1.3, 0.02, 16, 64]} />
+          <meshBasicMaterial color="#ff00ff" />
+        </mesh>
+        <pointLight position={[0, 0, 0]} intensity={2} distance={8} color="#aa00ff" />
+        <Sparkles count={60} scale={5} size={3} color="#00ffff" speed={1} opacity={0.7} />
+      </group>
+
+      {/* ─── 5. Rice Bowl ─── */}
+      <group ref={bowlRef} position={[0, -1, 0]}>
+        <mesh>
+          <sphereGeometry args={[2.5, 64, 32, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2]} />
+          <meshPhysicalMaterial
+            color="#f5f5f0" roughness={0.15} metalness={0.05}
+            clearcoat={1} side={THREE.DoubleSide}
+          />
+        </mesh>
         <mesh position={[0, 0.2, 0]}>
-          <sphereGeometry args={[2.9, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
-          <meshPhysicalMaterial color="#fffacd" roughness={0.9} />
+          <sphereGeometry args={[2.4, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
+          <meshStandardMaterial color="#fffacd" roughness={0.9} />
         </mesh>
-        {/* Smoke */}
-        <Sparkles position={[0, 2, 0]} count={100} scale={4} size={5} color="#ffffff" speed={0.8} opacity={0.3} />
+        <Sparkles position={[0, 2.5, 0]} count={80} scale={3} size={5} color="#ffddee" speed={0.5} opacity={0.4} />
+        <Sparkles position={[0, 3.5, 0]} count={40} scale={2} size={4} color="#ffffff"  speed={0.3} opacity={0.3} />
       </group>
-      
-      <ContactShadows position={[0, -2.5, 0]} opacity={0.4} scale={20} blur={2} far={10} />
     </>
   );
 }
