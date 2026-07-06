@@ -1,0 +1,121 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body, html, #root {
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+  font-family: 'Outfit', sans-serif;
+  background-color: #3a1c71; /* Fallback */
+}
+
+.canvas-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1;
+}
+
+.overlay-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 2;
+  pointer-events: none; /* Let clicks pass through to Canvas if needed */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+/* UI Elements */
+.intro-text {
+  text-align: center;
+  color: #fff;
+}
+
+.intro-text h1 {
+  font-size: 5rem;
+  font-weight: 800;
+  background: linear-gradient(to right, #ffd700, #ff8c00);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 2rem;
+  filter: drop-shadow(0 0 10px rgba(255, 215, 0, 0.5));
+}
+
+.scroll-indicator {
+  font-size: 1.2rem;
+  font-weight: 300;
+  opacity: 0.8;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.4; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(10px); }
+  100% { opacity: 0.4; transform: translateY(0); }
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  padding: 2rem 3rem;
+  color: white;
+  font-size: 1.5rem;
+  font-weight: 400;
+  max-width: 600px;
+  text-align: center;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+}
+
+.pos-bottom-right {
+  position: absolute;
+  bottom: 15%;
+  right: 10%;
+}
+
+.pos-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.pos-top-left {
+  position: absolute;
+  top: 15%;
+  left: 10%;
+}
+
+.hidden {
+  visibility: hidden;
+}
+
+.btn-explore {
+  margin-top: 2rem;
+  padding: 1rem 2rem;
+  background: linear-gradient(45deg, #ff416c, #ff4b2b);
+  border: none;
+  border-radius: 30px;
+  color: white;
+  font-size: 1.2rem;
+  font-weight: 600;
+  cursor: pointer;
+  pointer-events: auto; /* Enable click */
+  transition: transform 0.3s ease;
+}
+
+.btn-explore:hover {
+  transform: scale(1.05);
+}
