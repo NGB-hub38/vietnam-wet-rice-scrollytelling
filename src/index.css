@@ -4,12 +4,16 @@
   padding: 0;
 }
 
-body, html, #root {
+body, html {
   width: 100%;
-  height: 100%;
+  min-height: 100vh;
   overflow-x: hidden;
   font-family: 'Outfit', sans-serif;
   background-color: #3a1c71; /* Fallback */
+}
+
+#root {
+  width: 100%;
 }
 
 .canvas-container {
